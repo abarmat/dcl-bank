@@ -1,5 +1,5 @@
-// TODO: what about dismissing after a time
 // TODO: dialog system?
+// TODO: add some videogame audio
 
 export class MessageBubble extends Entity {
   static defaultTexture: Texture = new Texture('models/mau.png')
@@ -50,45 +50,80 @@ export class MessageBubble extends Entity {
   }
 }
 
-@Component('talk')
-export class Talk {
+export class Message {
   text: string
-  talkedAt: number
-  expiresSeconds: number = null
-  bubble: MessageBubble = null
+  expiresSeconds: number
+  saidAt: number
 
-  say(text: string, expiresSeconds?: number) {
+  constructor(text: string, expiresSeconds?: number) {
     this.text = text
     this.expiresSeconds = expiresSeconds
-  }
-
-  dismiss() {
-    this.text = null
-    this.expiresSeconds = null
-  }
-
-  isSilent() {
-    return !this.text
-  }
-
-  isUpdated() {
-    return this.bubble && this.bubble.textShape.value !== this.text
   }
 
   isExpired() {
     return (
       this.expiresSeconds &&
-      this.talkedAt &&
-      (Date.now() - this.talkedAt) / 1000 > this.expiresSeconds
+      this.saidAt &&
+      (Date.now() - this.saidAt) / 1000 > this.expiresSeconds
     )
+  }
+}
+
+export abstract class Dialogue {
+  abstract next()
+}
+
+export class PlainDialogue extends Dialogue {
+  items: Message[] = []
+  step: number = 0
+
+  addMessage(text: string, expiresSeconds?: number) {
+    this.items.push(new Message(text, expiresSeconds))
+  }
+
+  next() {
+    return this.items[this.step++]
+  }
+}
+
+@Component('talk')
+export class Talk {
+  dialogue: Dialogue
+  message: Message
+  bubble: MessageBubble
+
+  play(dialogue: Dialogue) {
+    this.dialogue = dialogue
+    this.message = this.dialogue.next()
+  }
+
+  say(text: string, expiresSeconds?: number) {
+    this.message = new Message(text, expiresSeconds)
+  }
+
+  dismiss() {
+    this.message = null
+    this.dialogue = null
+  }
+
+  next() {
+    this.message = this.dialogue ? this.dialogue.next() || null : null
+  }
+
+  isUpdated() {
+    return this.isTalking() && this.bubble.textShape.value !== this.message.text
+  }
+
+  isTalking() {
+    return this.bubble && this.message
   }
 
   willSay() {
-    return !this.bubble && this.text
+    return !this.bubble && this.message
   }
 
   willDismiss() {
-    return this.bubble && !this.text
+    return this.bubble && !this.message
   }
 }
 
@@ -121,8 +156,8 @@ export class TalkSystem implements ISystem {
     for (let talkEntity of talkers.entities) {
       const talk = talkEntity.getComponent(Talk)
 
-      if (talk.isExpired()) {
-        talk.dismiss()
+      if (talk.message.isExpired()) {
+        talk.next()
       }
 
       if (talk.willDismiss()) {
@@ -135,8 +170,8 @@ export class TalkSystem implements ISystem {
       }
 
       if (talk.isUpdated()) {
-        talk.bubble.textShape.value = talk.text
-        talk.talkedAt = Date.now()
+        talk.bubble.textShape.value = talk.message.text
+        talk.message.saidAt = Date.now()
       }
     }
   }
